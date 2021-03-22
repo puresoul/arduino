@@ -17,6 +17,11 @@ typedef struct {
      int pin;
 } Action;
 
+//================ Skce urcena pro upravy nastaveni
+
+const char* ssid = "";
+const char* password = "";
+
 #define ALLTIME -1
 
 // action
@@ -80,9 +85,6 @@ Action actions[] = {
 };
 
 //=========================================================================s
-
-const char* ssid = "MujO2Internet_095882";
-const char* password = "U2u27yf7";
 
 unsigned int localPort = 8888;  // local port to listen for UDP packets
 const int timeZone = 1;
