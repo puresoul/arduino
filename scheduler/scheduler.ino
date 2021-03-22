@@ -1,9 +1,9 @@
 // Import required libraries
+#include "EEPROM.h"
 #include "Time.h"
 #include "TimeLib.h"
 #include "TimeAlarms.h"
 #include "WiFi.h"
-#include "ESPAsyncWebServer.h"
 #include "WiFiUdp.h"
 
 typedef struct {
@@ -91,6 +91,7 @@ IPAddress timeServer(91, 206, 8, 36);
 WiFiUDP Udp;
 
 void setup(){
+  EEPROM.begin(1000);
   Serial.begin(115200);
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
@@ -101,6 +102,9 @@ void setup(){
   
   for(int i=0; i<=sizeof(pins); i++) {
     pinMode(pins[i], OUTPUT);
+    int address = sizeof(int)*i;
+    Serial.println(EEPROM.readInt(address));
+    digitalWrite(pins[i], EEPROM.readInt(address));
   }
   
   UpdateNTP();
@@ -120,6 +124,12 @@ void Scheduler() {
       }
     }
   }
+  int address = 0;
+  for(int i=0; i<=sizeof(pins); i++) {
+    EEPROM.writeInt(address, digitalRead(pins[i]));
+    address += sizeof(int);
+  }
+  EEPROM.commit();
 }
 
 void Worker(int i) {
