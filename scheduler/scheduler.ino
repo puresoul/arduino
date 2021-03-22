@@ -17,6 +17,8 @@ typedef struct {
      int pin;
 } Action;
 
+#define ALLTIME -1
+
 // action
 #define UP 1
 #define DOWN 0
@@ -35,8 +37,8 @@ int pins[] = {LED1, LED2};
 Action actions[] = {
 // Definice akce zapnout, kazdou 31 sekundu
   {
-  .h = -1,
-  .m = -1,
+  .h = ALLTIME,
+  .m = ALLTIME,
   .s = 31,
   .min = 0,
   .max = 0,
@@ -45,8 +47,8 @@ Action actions[] = {
   .pin = LED1,
   },
   {
-  .h = -1,
-  .m = -1,
+  .h = ALLTIME,
+  .m = ALLTIME,
   .s = 15,
   .min = 0,
   .max = 0,
@@ -56,8 +58,8 @@ Action actions[] = {
   },
 // Definice akce vypnout, kazdou 1 sekundu
   {
-  .h = -1,
-  .m = -1,
+  .h = ALLTIME,
+  .m = ALLTIME,
   .s = 1,
   .min = 0,
   .max = 0,
@@ -66,8 +68,8 @@ Action actions[] = {
   .pin = LED1,
   },
   {
-  .h = -1,
-  .m = -1,
+  .h = ALLTIME,
+  .m = ALLTIME,
   .s = 45,
   .min = 0,
   .max = 0,
