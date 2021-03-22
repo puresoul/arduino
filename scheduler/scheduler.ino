@@ -130,9 +130,9 @@ void Worker(int i) {
     Serial.print(" - ");
     Serial.println(actions[i].action);
     digitalWrite(actions[i].pin, actions[i].action);
+    return;
   }
   if (actions[i].type == TEMP) {
-    //Serial.println("ACTION TEMP");
     return;
     if (actions[i].h >= 0) {
       return;
