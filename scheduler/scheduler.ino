@@ -3,9 +3,16 @@
 #include "Time.h"
 #include "TimeLib.h"
 #include "TimeAlarms.h"
-#include "WiFi.h"
-#include "WiFiUdp.h"
+#include <SPI.h>
+#include <Ethernet.h>
+#include <EthernetUDP.h>
+#include <Adafruit_Sensor.h>
+#include <DHT.h>
+#include <DHT_U.h>
 
+
+
+uint32_t delayMS;
 typedef struct {
      int h;
      int m;
@@ -18,10 +25,6 @@ typedef struct {
 } Action;
 
 //================ Skce urcena pro upravy nastaveni
-
-const char* ssid = "";
-const char* password = "";
-
 #define ALLTIME -1
 
 // action
@@ -86,34 +89,65 @@ Action actions[] = {
 
 //=========================================================================s
 
-unsigned int localPort = 8888;  // local port to listen for UDP packets
+int temp;
+int hum;
+
+#define DHTPIN 2     // Digital pin connected to the DHT sensor 
+
+#define DHTTYPE    DHT22     // DHT 22 (AM2302)
+
+DHT_Unified dht(DHTPIN, DHTTYPE);
+
+byte mac[] = {
+  0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED
+};
+
+unsigned int localPort = 8888;       // local port to listen for UDP packets
 const int timeZone = 1;
+//const char timeServer[] = "time.nist.gov"; // time.nist.gov NTP server
+//IPAddress timeServer(91, 206, 8, 36);
 
-IPAddress timeServer(91, 206, 8, 36);
-WiFiUDP Udp;
+IPAddress timeServer(129,6,15,28);
 
-void setup(){
-  EEPROM.begin(1000);
+const int NTP_PACKET_SIZE = 48; // NTP time stamp is in the first 48 bytes of the message
+
+byte packetBuffer[NTP_PACKET_SIZE]; //buffer to hold incoming and outgoing packets
+
+// A UDP instance to let us send and receive packets over UDP
+EthernetUDP UDP;
+
+void setup(){  
   Serial.begin(115200);
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(1000);
-    Serial.println("Connecting to WiFi..");
-  }
-  Serial.println(WiFi.localIP());
-  
+  StartNET();
   for(int i=0; i<=sizeof(pins); i++) {
     pinMode(pins[i], OUTPUT);
-    int address = sizeof(int)*i;
-    Serial.println(EEPROM.readInt(address));
-    digitalWrite(pins[i], EEPROM.readInt(address));
   }
-  
-  UpdateNTP();
+  sensor_t sensor;
+
+  setSyncProvider(getNtpTime);
+  dht.begin();
+  dht.temperature().getSensor(&sensor);
+  dht.humidity().getSensor(&sensor);
+  delayMS = sensor.min_delay / 1000;
   Alarm.timerRepeat(1, Scheduler);
 }
 
+void StartNET() {
+  Ethernet.init(10);
+  if (Ethernet.begin(mac) == 0) {
+    Serial.println("Failed to configure Ethernet using DHCP");
+    // Check for Ethernet hardware present
+    if (Ethernet.hardwareStatus() == EthernetNoHardware) {
+      Serial.println("Ethernet shield was not found.  Sorry, can't run without hardware. :(");
+    } else if (Ethernet.linkStatus() == LinkOFF) {
+      Serial.println("Ethernet cable is not connected.");
+    }
+  }
+  UDP.begin(localPort);
+}
+
 void Scheduler() {
+
   int h = hour();            // the hour now  (0-23)
   int m = minute();          // the minute now (0-59)
   int s = second();
@@ -127,11 +161,12 @@ void Scheduler() {
     }
   }
   int address = 0;
-  for(int i=0; i<=sizeof(pins); i++) {
-    EEPROM.writeInt(address, digitalRead(pins[i]));
-    address += sizeof(int);
-  }
-  EEPROM.commit();
+}
+
+bool Checker(int i, int min, int max) {
+  if (actions[i].min > min) return false;
+  if (actions[i].max < max) return false;  
+  return true;
 }
 
 void Worker(int i) {
@@ -143,8 +178,11 @@ void Worker(int i) {
     Serial.println(actions[i].action);
     digitalWrite(actions[i].pin, actions[i].action);
     return;
-  }
-  if (actions[i].type == TEMP) {
+  } else {
+    Serial.print("Temp = ");
+    Serial.print(temp);
+    Serial.print(" Hum = ");
+    Serial.println(hum);
     return;
     if (actions[i].h >= 0) {
       return;
@@ -167,29 +205,33 @@ void printTime() {
 }
 
 void loop() {
-  Alarm.delay(0);
+  Alarm.delay(delayMS);
+  // Get temperature event and print its value.
+  sensors_event_t event;
+  dht.temperature().getEvent(&event);
+  if (event.temperature) {
+    temp = event.temperature;
+  }
+  // Get humidity event and print its value.
+  dht.humidity().getEvent(&event);
+  if (event.relative_humidity) {
+    hum = event.relative_humidity;
+  }
+  Alarm.delay(1000);
 }
 //=========================================================
 
-void UpdateNTP() {
-  Udp.begin(localPort);
-  setSyncProvider(getNtpTime);
-}
-
-const int NTP_PACKET_SIZE = 48; // NTP time is in the first 48 bytes of message
-byte packetBuffer[NTP_PACKET_SIZE]; //buffer to hold incoming & outgoing packets
-
 time_t getNtpTime()
 {
-  while (Udp.parsePacket() > 0) ; // discard any previously received packets
+  while (UDP.parsePacket() > 0) ; // discard any previously received packets
   Serial.println("Transmit NTP Request");
   sendNTPpacket(timeServer);
   uint32_t beginWait = millis();
   while (millis() - beginWait < 1500) {
-    int size = Udp.parsePacket();
+    int size = UDP.parsePacket();
     if (size >= NTP_PACKET_SIZE) {
       Serial.println("Receive NTP Response");
-      Udp.read(packetBuffer, NTP_PACKET_SIZE);  // read packet into the buffer
+      UDP.read(packetBuffer, NTP_PACKET_SIZE);  // read packet into the buffer
       unsigned long secsSince1900;
       // convert four bytes starting at location 40 to a long integer
       secsSince1900 =  (unsigned long)packetBuffer[40] << 24;
@@ -221,7 +263,7 @@ void sendNTPpacket(IPAddress &address)
   packetBuffer[15]  = 52;
   // all NTP fields have been given values, now
   // you can send a packet requesting a timestamp:                 
-  Udp.beginPacket(address, 123); //NTP requests are to port 123
-  Udp.write(packetBuffer, NTP_PACKET_SIZE);
-  Udp.endPacket();
+  UDP.beginPacket(address, 123); //NTP requests are to port 123
+  UDP.write(packetBuffer, NTP_PACKET_SIZE);
+  UDP.endPacket();
 }
