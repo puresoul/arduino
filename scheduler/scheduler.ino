@@ -10,20 +10,6 @@
 #include <DHT.h>
 #include <DHT_U.h>
 
-
-
-uint32_t delayMS;
-typedef struct {
-     int h;
-     int m;
-     int s;
-     int min;
-     int max;
-     int type;
-     int action;
-     int pin;
-} Action;
-
 //================ Skce urcena pro upravy nastaveni
 #define ALLTIME -1
 
@@ -32,105 +18,94 @@ typedef struct {
 #define DOWN 0
 
 // type
-#define TIME 0
+#define SWITCH 0
+#define BUTTON 1
+
+// subtype
+#define SCHED 0
+#define MAX 1
+#define MIN 2
+
+// sensor
+#define NONE 0
 #define TEMP 1
+#define HUM 2
 
 // Zde je potreba pojemnovat konkretni piny a zapsat je do pole pins
 
 #define LED1 12
-#define LED2 13
+#define LED2 11
 
 int pins[] = {LED1, LED2};
 
+typedef struct {
+  int h;
+  int m;
+  int s;
+  int arg ;
+  int type;
+  int subtype;
+  int sensor;
+  int action;
+  int pin;
+} Action;
+
 Action actions[] = {
-// Definice akce zapnout, kazdou 31 sekundu
+  // Ukazka akce SCHED, umoznuje zapnout, anebo vypnout pomoci hodnoty "action" v pravidelny cas
   {
-  .h = ALLTIME,
-  .m = ALLTIME,
-  .s = 31,
-  .min = 0,
-  .max = 0,
-  .type = TIME,
-  .action = UP,
-  .pin = LED1,
+    // Tato definice znamena kazdou prvni sekundu v minute, kazdou hodinu
+    .h = ALLTIME,
+    .m = ALLTIME,
+    .s = 31,
+    .arg = 0,
+    .type = SWITCH,
+    .subtype = SCHED,
+    .sensor = NONE,
+    // UP, tedy zapnout
+    .action = UP,
+    .pin = LED2,
   },
+  // Ukazka akce ONESHOT, umoznuje provest libovolne dlouhe zapnuti a vypnuti
   {
-  .h = ALLTIME,
-  .m = ALLTIME,
-  .s = 15,
-  .min = 0,
-  .max = 0,
-  .type = TIME,
-  .action = UP,
-  .pin = LED2,
-  },
-// Definice akce vypnout, kazdou 1 sekundu
-  {
-  .h = ALLTIME,
-  .m = ALLTIME,
-  .s = 1,
-  .min = 0,
-  .max = 0,
-  .type = TIME,
-  .action = DOWN,
-  .pin = LED1,
-  },
-  {
-  .h = ALLTIME,
-  .m = ALLTIME,
-  .s = 45,
-  .min = 0,
-  .max = 0,
-  .type = TIME,
-  .action = DOWN,
-  .pin = LED2,
+    .h = ALLTIME,
+    .m = ALLTIME,
+    .s = 1,
+    .arg = 1000,
+    .type = BUTTON,
+    .subtype = MAX,
+    .sensor = TEMP,
+    .action = 3000,
+    .pin = LED1,
   },
 };
 
 //=========================================================================s
 
+uint32_t delayMS;
+
 int temp;
 int hum;
-
-#define DHTPIN 2     // Digital pin connected to the DHT sensor 
-
-#define DHTTYPE    DHT22     // DHT 22 (AM2302)
-
-DHT_Unified dht(DHTPIN, DHTTYPE);
 
 byte mac[] = {
   0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED
 };
+const int NTP_PACKET_SIZE = 48;
 
-unsigned int localPort = 8888;       // local port to listen for UDP packets
+byte packetBuffer[NTP_PACKET_SIZE];
+
+unsigned int localPort = 8888;
 const int timeZone = 1;
-//const char timeServer[] = "time.nist.gov"; // time.nist.gov NTP server
+
 //IPAddress timeServer(91, 206, 8, 36);
+IPAddress timeServer(129, 6, 15, 28);
 
-IPAddress timeServer(129,6,15,28);
+#define DHTPIN 2
 
-const int NTP_PACKET_SIZE = 48; // NTP time stamp is in the first 48 bytes of the message
+#define DHTTYPE DHT22
 
-byte packetBuffer[NTP_PACKET_SIZE]; //buffer to hold incoming and outgoing packets
+DHT_Unified dht(DHTPIN, DHTTYPE);
 
-// A UDP instance to let us send and receive packets over UDP
 EthernetUDP UDP;
-
-void setup(){  
-  Serial.begin(115200);
-  StartNET();
-  for(int i=0; i<=sizeof(pins); i++) {
-    pinMode(pins[i], OUTPUT);
-  }
-  sensor_t sensor;
-
-  setSyncProvider(getNtpTime);
-  dht.begin();
-  dht.temperature().getSensor(&sensor);
-  dht.humidity().getSensor(&sensor);
-  delayMS = sensor.min_delay / 1000;
-  Alarm.timerRepeat(1, Scheduler);
-}
 
 void StartNET() {
   Ethernet.init(10);
@@ -146,51 +121,28 @@ void StartNET() {
   UDP.begin(localPort);
 }
 
-void Scheduler() {
-
+bool TimeCheck(int i) {
   int h = hour();            // the hour now  (0-23)
   int m = minute();          // the minute now (0-59)
   int s = second();
-  for(int i=0; i<=sizeof(actions); i++) {
-    if (actions[i].s == s || actions[i].s == -1 || actions[i].type != TIME) {
-      if (actions[i].s == m || actions[i].m == -1 || actions[i].type != TIME) {
-        if (actions[i].s == h || actions[i].h == -1 || actions[i].type != TIME) {
-          Worker(i);
-        }
+  if (actions[i].s == s || actions[i].s == ALLTIME) {
+    if (actions[i].s == m || actions[i].m == ALLTIME) {
+      if (actions[i].s == h || actions[i].h == ALLTIME) {
+        return true;
       }
     }
   }
-  int address = 0;
+  return false;
 }
 
-bool Checker(int i, int min, int max) {
-  if (actions[i].min > min) return false;
-  if (actions[i].max < max) return false;  
-  return true;
-}
-
-void Worker(int i) {
-  if (actions[i].type == TIME) {
-    printTime();
-    Serial.print("ACTION TIME = ");
-    Serial.print(actions[i].pin);
-    Serial.print(" - ");
-    Serial.println(actions[i].action);
-    digitalWrite(actions[i].pin, actions[i].action);
-    return;
-  } else {
-    Serial.print("Temp = ");
-    Serial.print(temp);
-    Serial.print(" Hum = ");
-    Serial.println(hum);
-    return;
-    if (actions[i].h >= 0) {
-      return;
-    }
-    if (actions[i].m <= 0) {
-      return;
-    }
+bool SubtypeCheck(int i, int arg) {
+  if (actions[i].subtype == MIN) {
+    if (actions[i].arg < arg) return true;
   }
+  if (actions[i].subtype == MAX) {
+    if (actions[i].arg > arg) return true;
+  }
+  return false;
 }
 
 void printTime() {
@@ -202,6 +154,65 @@ void printTime() {
   Serial.print(m);
   Serial.print(":");
   Serial.println(s);
+}
+
+void Worker(int i, int t) {
+  if (t != 0) {
+    digitalWrite(actions[i].pin, UP);
+    Serial.println("UP");
+    Alarm.delay(t);
+    digitalWrite(actions[i].pin, DOWN);
+    Serial.println("DOWN");
+  } else {
+    if (actions[i].action == UP || actions[i].action == DOWN) digitalWrite(actions[i].pin, actions[i].action);    
+  }
+}
+
+void TypeCheck(int i) {
+  printTime();
+  Serial.print("TEMP = ");
+  Serial.print(temp);
+  Serial.print(", HUM = ");
+  Serial.println(hum);
+  Alarm.delay(10);  
+  if (actions[i].type == SWITCH) {
+    Serial.print("SWITCH - ");
+    Serial.println(actions[i].pin);
+    if (actions[i].sensor == TEMP && actions[i].subtype != SCHED) {
+      if (SubtypeCheck(i,temp)) Worker(i,0);
+      return;
+    }
+    if (actions[i].sensor == HUM && actions[i].subtype != SCHED) {
+      if (SubtypeCheck(i,hum)) Worker(i,0);
+      return;
+    }
+    if (actions[i].sensor == NONE) {
+      Worker(i,0);
+      return;     
+    } 
+  }
+  if (actions[i].type == BUTTON) {
+    Serial.print("BUTTON - ");
+    Serial.println(actions[i].pin);
+    if (actions[i].sensor == TEMP && actions[i].subtype != SCHED) {
+      if (SubtypeCheck(i,temp)) Worker(i,actions[i].action);
+      return;
+    }
+    if (actions[i].sensor == HUM && actions[i].subtype != SCHED) {
+      if (SubtypeCheck(i,hum)) Worker(i,actions[i].action);
+      return;
+    }
+    if (actions[i].sensor == NONE) {
+      Worker(i,actions[i].action);
+      return;      
+    }
+  }
+}
+
+void Scheduler() {
+  for (int i = 0; i < sizeof(actions)/sizeof(Action); i++) {
+    if (TimeCheck(i)) TypeCheck(i);
+  }
 }
 
 void loop() {
@@ -221,27 +232,29 @@ void loop() {
 }
 //=========================================================
 
-time_t getNtpTime()
-{
-  while (UDP.parsePacket() > 0) ; // discard any previously received packets
-  Serial.println("Transmit NTP Request");
-  sendNTPpacket(timeServer);
-  uint32_t beginWait = millis();
-  while (millis() - beginWait < 1500) {
-    int size = UDP.parsePacket();
-    if (size >= NTP_PACKET_SIZE) {
-      Serial.println("Receive NTP Response");
-      UDP.read(packetBuffer, NTP_PACKET_SIZE);  // read packet into the buffer
-      unsigned long secsSince1900;
-      // convert four bytes starting at location 40 to a long integer
-      secsSince1900 =  (unsigned long)packetBuffer[40] << 24;
-      secsSince1900 |= (unsigned long)packetBuffer[41] << 16;
-      secsSince1900 |= (unsigned long)packetBuffer[42] << 8;
-      secsSince1900 |= (unsigned long)packetBuffer[43];
-      return secsSince1900 - 2208988800UL + timeZone * SECS_PER_HOUR;
+time_t getNtpTime() {
+  while (1) {
+    while (UDP.parsePacket() > 0) ; // discard any previously received packets
+    Serial.println("Transmit NTP Request");
+    sendNTPpacket(timeServer);
+    uint32_t beginWait = millis();
+    while (millis() - beginWait < 1500) {
+      int size = UDP.parsePacket();
+      if (size >= NTP_PACKET_SIZE) {
+        Serial.println("Receive NTP Response");
+        UDP.read(packetBuffer, NTP_PACKET_SIZE);  // read packet into the buffer
+        unsigned long secsSince1900;
+        // convert four bytes starting at location 40 to a long integer
+        secsSince1900 =  (unsigned long)packetBuffer[40] << 24;
+        secsSince1900 |= (unsigned long)packetBuffer[41] << 16;
+        secsSince1900 |= (unsigned long)packetBuffer[42] << 8;
+        secsSince1900 |= (unsigned long)packetBuffer[43];
+        return secsSince1900 - 2208988800UL + timeZone * SECS_PER_HOUR;
+      }
     }
+    Serial.println("No NTP Response :-(");
+    Alarm.delay(3000);
   }
-  Serial.println("No NTP Response :-(");
   return 0; // return 0 if unable to get the time
 }
 
@@ -262,8 +275,23 @@ void sendNTPpacket(IPAddress &address)
   packetBuffer[14]  = 49;
   packetBuffer[15]  = 52;
   // all NTP fields have been given values, now
-  // you can send a packet requesting a timestamp:                 
+  // you can send a packet requesting a timestamp:
   UDP.beginPacket(address, 123); //NTP requests are to port 123
   UDP.write(packetBuffer, NTP_PACKET_SIZE);
   UDP.endPacket();
+}
+
+void setup() {
+  Serial.begin(115200);
+  for (int i = 0; i <= sizeof(pins)/sizeof(int); i++) {
+    pinMode(pins[i], OUTPUT);
+  }
+  StartNET();
+  setSyncProvider(getNtpTime);
+  dht.begin();
+  sensor_t sensor;
+  dht.temperature().getSensor(&sensor);
+  dht.humidity().getSensor(&sensor);
+  delayMS = sensor.min_delay / 1000;
+  Alarm.timerRepeat(1, Scheduler);
 }
