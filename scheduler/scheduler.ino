@@ -81,7 +81,7 @@ Action actions[] = {
 //=========================================================================s
 
 int sleep[sizeof(actions)/sizeof(Action)];
-long lastmillis[sizeof(actions)/sizeof(Action)];
+unsigned long lastmillis[sizeof(actions)/sizeof(Action)];
 
 uint32_t delayMS;
 
