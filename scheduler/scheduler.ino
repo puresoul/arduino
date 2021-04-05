@@ -1,5 +1,4 @@
 // Import required libraries
-#include "EEPROM.h"
 #include "Time.h"
 #include "TimeLib.h"
 #include "TimeAlarms.h"
@@ -51,7 +50,7 @@ typedef struct {
 } Action;
 
 Action actions[] = {
-  // Ukazka akce SCHED, umoznuje zapnout, anebo vypnout pomoci hodnoty "action" v pravidelny cas
+  // Ukazka akce SWITCH, umoznuje zapnout, anebo vypnout pomoci hodnoty "action" v pravidelny cas
   {
     // Tato definice znamena kazdou prvni sekundu v minute, kazdou hodinu
     .h = ALLTIME,
@@ -65,7 +64,7 @@ Action actions[] = {
     .action = UP,
     .pin = LED2,
   },
-  // Ukazka akce ONESHOT, umoznuje provest libovolne dlouhe zapnuti a vypnuti
+  // Ukazka akce BUTTON, umoznuje provest libovolne dlouhe zapnuti a nasledne vypnuti
   {
     .h = ALLTIME,
     .m = ALLTIME,
@@ -80,6 +79,9 @@ Action actions[] = {
 };
 
 //=========================================================================s
+
+int sleep[sizeof(actions)/sizeof(Action)];
+long lastmillis[sizeof(actions)/sizeof(Action)];
 
 uint32_t delayMS;
 
@@ -159,10 +161,8 @@ void printTime() {
 void Worker(int i, int t) {
   if (t != 0) {
     digitalWrite(actions[i].pin, UP);
-    Serial.println("UP");
-    Alarm.delay(t);
-    digitalWrite(actions[i].pin, DOWN);
-    Serial.println("DOWN");
+    lastmillis[i] = millis();
+    sleep[i] = t;
   } else {
     if (actions[i].action == UP || actions[i].action == DOWN) digitalWrite(actions[i].pin, actions[i].action);    
   }
@@ -228,7 +228,14 @@ void loop() {
   if (event.relative_humidity) {
     hum = event.relative_humidity;
   }
-  Alarm.delay(1000);
+  for (int i = 0; i <= sizeof(actions)/sizeof(Action); i++) {
+    if (sleep[i] != 0) {
+      if (millis() - lastmillis[i] >= sleep[i]) {
+        digitalWrite(actions[i].pin, DOWN);
+        sleep[i] = 0;
+      }
+    }
+  }
 }
 //=========================================================
 
