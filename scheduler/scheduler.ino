@@ -130,12 +130,12 @@ EthernetUDP UDP;
 void StartNET() {
   Ethernet.init(10);
   if (Ethernet.begin(mac) == 0) {
-    Serial.println("Failed to configure Ethernet using DHCP");
+    Serial.println(F("Failed to configure Ethernet using DHCP"));
     // Check for Ethernet hardware present
     if (Ethernet.hardwareStatus() == EthernetNoHardware) {
-      Serial.println("Ethernet shield was not found.  Sorry, can't run without hardware. :(");
+      Serial.println(F("Ethernet shield was not found.  Sorry, can't run without hardware. :("));
     } else if (Ethernet.linkStatus() == LinkOFF) {
-      Serial.println("Ethernet cable is not connected.");
+      Serial.println(F("Ethernet cable is not connected."));
     }
   }
   UDP.begin(localPort);
@@ -170,9 +170,9 @@ void printTime() {
   int m = minute();          // the minute now (0-59)
   int s = second();
   Serial.print(h);
-  Serial.print(":");
+  Serial.print(F(":"));
   Serial.print(m);
-  Serial.print(":");
+  Serial.print(F(":"));
   Serial.println(s);
 }
 
@@ -193,13 +193,13 @@ void Worker(int i, int t) {
 
 void TypeCheck(int i) {
   printTime();
-  Serial.print("TEMP = ");
+  Serial.print(F("TEMP = "));
   Serial.print(temp);
-  Serial.print(", HUM = ");
+  Serial.print(F(", HUM = "));
   Serial.println(hum);
   Alarm.delay(10);  
   if (actions[i].type == SWITCH) {
-    Serial.print("SWITCH - ");
+    Serial.print(F("SWITCH - "));
     Serial.println(actions[i].pin);
     if (actions[i].sensor == TEMP && actions[i].subtype != SCHED) {
       if (SubtypeCheck(i,temp)) Worker(i,0);
@@ -215,7 +215,7 @@ void TypeCheck(int i) {
     } 
   }
   if (actions[i].type == BUTTON) {
-    Serial.print("BUTTON - ");
+    Serial.print(F("BUTTON - "));
     Serial.println(actions[i].pin);
     if (actions[i].sensor == TEMP && actions[i].subtype != SCHED) {
       if (SubtypeCheck(i,temp)) Worker(i,actions[i].action);
@@ -275,24 +275,24 @@ void editPin(int p, char s) {
 void initSdFile() {
   if (sd.exists(FILENAME) && !sd.remove(FILENAME))
   {
-    Serial.println("Failed init remove file");
+    Serial.println(F("Failed init remove file"));
     return;
   }
   if (!csv.open(FILENAME, O_RDWR | O_CREAT)) {
-    Serial.println("Failed open file");
+    Serial.println(F("Failed open file"));
   }
 }
 
 time_t getNtpTime() {
   while (1) {
     while (UDP.parsePacket() > 0) ; // discard any previously received packets
-    Serial.println("Transmit NTP Request");
+    Serial.println(F("Transmit NTP Request"));
     sendNTPpacket(timeServer);
     uint32_t beginWait = millis();
     while (millis() - beginWait < 1500) {
       int size = UDP.parsePacket();
       if (size >= NTP_PACKET_SIZE) {
-        Serial.println("Receive NTP Response");
+        Serial.println(F("Receive NTP Response"));
         UDP.read(packetBuffer, NTP_PACKET_SIZE);  // read packet into the buffer
         unsigned long secsSince1900;
         // convert four bytes starting at location 40 to a long integer
@@ -303,7 +303,7 @@ time_t getNtpTime() {
         return secsSince1900 - 2208988800UL + timeZone * SECS_PER_HOUR;
       }
     }
-    Serial.println("No NTP Response :-(");
+    Serial.println(F("No NTP Response :-("));
     Alarm.delay(3000);
   }
   return 0; // return 0 if unable to get the time
