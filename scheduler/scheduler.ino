@@ -1,5 +1,6 @@
 // Import required libraries
-#include "Time.h"
+#include <SdFat.h>
+#include <CSVFile.h>
 #include "TimeLib.h"
 #include "TimeAlarms.h"
 #include <SPI.h>
@@ -10,6 +11,17 @@
 #include <DHT_U.h>
 
 //================ Skce urcena pro upravy nastaveni
+
+#define PIN_SPI_CLK 13
+#define PIN_SPI_MOSI 11
+#define PIN_SPI_MISO 12
+#define PIN_SD_CS 10
+
+#define PIN_OTHER_DEVICE_CS -1
+#define SD_CARD_SPEED SPI_FULL_SPEED 
+#define FILENAME "CSV.csv"
+
+
 #define ALLTIME -1
 
 // action
@@ -35,7 +47,7 @@
 #define LED1 12
 #define LED2 11
 
-int pins[] = {LED1, LED2};
+const int pins[] = {LED1, LED2};
 
 typedef struct {
   int h;
@@ -80,6 +92,12 @@ Action actions[] = {
 
 //=========================================================================s
 
+SdFat sd;
+CSVFile csv;
+
+const byte BUFFER_SIZE = 5;
+char buffer[BUFFER_SIZE + 1];
+
 int sleep[sizeof(actions)/sizeof(Action)];
 unsigned long lastmillis[sizeof(actions)/sizeof(Action)];
 
@@ -88,14 +106,14 @@ uint32_t delayMS;
 int temp;
 int hum;
 
-byte mac[] = {
+const byte mac[] = {
   0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED
 };
 const int NTP_PACKET_SIZE = 48;
 
 byte packetBuffer[NTP_PACKET_SIZE];
 
-unsigned int localPort = 8888;
+const unsigned int localPort = 8888;
 const int timeZone = 1;
 
 //IPAddress timeServer(91, 206, 8, 36);
@@ -161,10 +179,15 @@ void printTime() {
 void Worker(int i, int t) {
   if (t != 0) {
     digitalWrite(actions[i].pin, UP);
+    editPin(actions[i].pin,"1");
     lastmillis[i] = millis();
     sleep[i] = t;
   } else {
-    if (actions[i].action == UP || actions[i].action == DOWN) digitalWrite(actions[i].pin, actions[i].action);    
+    if (actions[i].action == UP || actions[i].action == DOWN) { 
+      digitalWrite(actions[i].pin, actions[i].action);    
+      if (actions[i].action == UP) editPin(actions[i].pin,"1");
+      if (actions[i].action == DOWN) editPin(actions[i].pin,"0");
+    }
   }
 }
 
@@ -232,12 +255,33 @@ void loop() {
     if (sleep[i] != 0) {
       if (millis() - lastmillis[i] >= sleep[i]) {
         digitalWrite(actions[i].pin, DOWN);
+        editPin(actions[i].pin,"0");
         sleep[i] = 0;
       }
     }
   }
 }
 //=========================================================
+
+void editPin(int p, char s) {
+  for (int i = 0; i <= sizeof(pins)/sizeof(int); i++) {
+    if (pins[i] == p) {
+      csv.gotoField(p);
+      csv.editField(s);
+    }
+  }
+}
+
+void initSdFile() {
+  if (sd.exists(FILENAME) && !sd.remove(FILENAME))
+  {
+    Serial.println("Failed init remove file");
+    return;
+  }
+  if (!csv.open(FILENAME, O_RDWR | O_CREAT)) {
+    Serial.println("Failed open file");
+  }
+}
 
 time_t getNtpTime() {
   while (1) {
@@ -293,6 +337,19 @@ void setup() {
   for (int i = 0; i <= sizeof(pins)/sizeof(int); i++) {
     pinMode(pins[i], OUTPUT);
   }
+    // Setup pinout
+  pinMode(PIN_SPI_MOSI, OUTPUT);
+  pinMode(PIN_SPI_MISO, INPUT);
+  pinMode(PIN_SPI_CLK, OUTPUT);
+  //Disable SPI devices
+  pinMode(PIN_SD_CS, OUTPUT);
+  digitalWrite(PIN_SD_CS, HIGH);
+  
+  #if PIN_OTHER_DEVICE_CS > 0
+  pinMode(PIN_OTHER_DEVICE_CS, OUTPUT);
+  digitalWrite(PIN_OTHER_DEVICE_CS, HIGH);
+  #endif //PIN_OTHER_DEVICE_CS > 0
+  
   StartNET();
   setSyncProvider(getNtpTime);
   dht.begin();
@@ -300,5 +357,15 @@ void setup() {
   dht.temperature().getSensor(&sensor);
   dht.humidity().getSensor(&sensor);
   delayMS = sensor.min_delay / 1000;
+  
+  initSdFile();
+  buffer[BUFFER_SIZE] = '\0';
+
+  for (int i = 0; i <= sizeof(pins)/sizeof(int); i++) {
+    csv.gotoField(i);
+    csv.readField(buffer, BUFFER_SIZE);
+    if (buffer == "1") digitalWrite(pins[i], UP);
+  }
+  
   Alarm.timerRepeat(1, Scheduler);
 }
